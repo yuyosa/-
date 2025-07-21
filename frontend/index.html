@@ -1,1 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Farm Game with Login & Shop</title>
+  <style>
+    body { font-family: sans-serif; }
+    #game-section { margin-top: 20px; }
+    #plots button { margin: 5px 0; }
+    #shop, #seed-selector {
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-top: 15px;
+      background: #f9f9f9;
+    }
+    #shop h3, #seed-selector h3 { margin-top: 0; }
+    .seed-row { margin: 5px 0; }
 
+    /* 新消息提示区域样式 */
+    #message-area {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.8);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-size: 14px;
+      opacity: 0;
+      transition: opacity 0.5s ease;
+      pointer-events: none;
+      z-index: 9999;
+      max-width: 300px;
+      word-wrap: break-word;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Farm Game</h1>
+
+  <!-- 登录和注册界面 -->
+  <div id="auth-section">
+    <h2>Login / Register</h2>
+    <input type="text" id="username" placeholder="Username"><br>
+    <input type="password" id="password" placeholder="Password"><br>
+    <button type="button" onclick="register(event)">Register</button>
+    <button type="button" onclick="login(event)">Login</button>
+  </div>
+
+  <!-- 游戏界面 -->
+  <div id="game-section" style="display:none;">
+    <h2 id="welcome-message">Welcome! Gold: 0</h2>
+    <button type="button" onclick="openShop(event)">Shop</button>
+    <div id="plots"></div>
+    <button type="button" onclick="logout(event)">Logout</button>
+
+    <!-- 商店面板 -->
+    <div id="shop" style="display:none;">
+      <h3>Shop</h3>
+      <div class="seed-row">
+        Carrot Seed - 10 Gold
+        <button type="button" onclick="buySeed('carrot_seed', event)">Buy</button>
+      </div>
+      <button type="button" onclick="closeShop(event)">Close Shop</button>
+    </div>
+
+    <!-- 种子选择面板 -->
+    <div id="seed-selector" style="display:none;"></div>
+  </div>
+
+  <!-- 新消息提示区域 -->
+  <div id="message-area"></div>
+
+<script>
+  const API_BASE = "http://127.0.0.1:8000";
+  const CROP_GROW_TIME = 60;
+  let userId = localStorage.getItem("userId");
+
+  function showMessage(msg) {
+    const msgArea = document.getElementById("message-area");
+    msgArea.textContent = msg;
+    msgArea.style.pointerEvents = "auto";
+    msgArea.style.opacity = "1";
+    setTimeout(() => {
+      msgArea.style.opacity = "0";
+      msgArea.style.pointerEvents = "none";
+    }, 3000);
+  }
+
+  window.onload = () => {
+    if (userId) {
+      showGame();
+    }
+  };
+
+  /* --------- Auth --------- */
+  async function register(event) {
+    if (event) event.preventDefault();
+    const username = document.getElementById("username").value.trim();
+    const password = document.getElementById("password").value.trim();
+    if (!username || !password) {
+      showMessage("Please enter username & password.");
+      return;
+    }
+    try {
+      const resp = await fetch(`${API_BASE}/register?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`, { method: 'POST' });
+      const data = await resp.json();
+      showMessage(data.message || data.error);
+    } catch {
+      showMessage("Network error");
+    }
+  }
+
+  async function login(event) {
+    if (event) event.preventDefault();
+    const username = document.getElementById("username").value.trim();
+    const password = document.getElementById("password").value.trim();
+    if (!username || !password) {
+      showMessage("Please enter username & password.");
+      return;
+    }
+    try {
+      const resp = await fetch(`${API_BASE}/login?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`, { method: 'POST' });
+      const data = await resp.json();
+      if (data.user_id) {
+        userId = data.user_id;
+        localStorage.setItem("userId", userId);
+        showGame();
+      } else {
+        showMessage(data.error || "Login failed.");
+      }
+    } catch {
+      showMessage("Network error");
+    }
+  }
+
+  function logout(event) {
+    if (event) event.preventDefault();
+    userId = null;
+    localStorage.removeItem("userId");
+    document.getElementById("auth-section").style.display = "block";
+    document.getElementById("game-section").style.display = "none";
+    document.getElementById("plots").innerHTML = "";
+    closeShop();
+    closeSeedSelector();
+  }
+
+  function showGame() {
+    document.getElementById("auth-section").style.display = "none";
+    document.getElementById("game-section").style.display = "block";
+    loadState();
+    startAutoRefresh();
+  }
+
+  /* --------- Game State --------- */
+  let refreshTimer = null;
+  function startAutoRefresh() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(loadState, 1000);
+  }
+
+  async function loadState() {
+    if (!userId) return;
+    try {
+      const resp = await fetch(`${API_BASE}/state/${userId}`);
+      const data = await resp.json();
+      if (data.error) {
+        showMessage(data.error);
+        logout();
+        return;
+      }
+      document.getElementById("welcome-message").innerText = `Welcome [${data.username}] Gold: ${data.gold}`;
+      const plotsDiv = document.getElementById('plots');
+      plotsDiv.innerHTML = '';
+
+      data.plots.forEach((plot, i) => {
+        const btn = document.createElement('button');
+        btn.type = "button";
+        const infoSpan = document.createElement('span');
+        infoSpan.style.marginLeft = "10px";
+
+        if (plot.crop) {
+          btn.textContent = `Harvest Plot ${i + 1}`;
+          btn.onclick = (event) => {
+            event.preventDefault();
+            harvest(plot.id);
+          };
+
+          const plantedAt = new Date(plot.planted_at);
+          const now = Date.now();
+          const diffSeconds = Math.floor(CROP_GROW_TIME - (now - plantedAt.getTime()) / 1000);
+          infoSpan.textContent = diffSeconds <= 0 ? "Ready!" : `Ready in ${diffSeconds}s`;
+        } else {
+          btn.textContent = `Plant on Plot ${i + 1}`;
+          btn.onclick = (event) => {
+            event.preventDefault();
+            openSeedSelector(plot.id);
+          };
+          infoSpan.textContent = "";
+        }
+
+        plotsDiv.appendChild(btn);
+        plotsDiv.appendChild(infoSpan);
+        plotsDiv.appendChild(document.createElement('br'));
+      });
+    } catch {
+      showMessage("Failed to load game state");
+    }
+  }
+
+  /* --------- Shop --------- */
+  function openShop(event) {
+    if (event) event.preventDefault();
+    document.getElementById('shop').style.display = 'block';
+  }
+  function closeShop(event) {
+    if (event) event.preventDefault();
+    document.getElementById('shop').style.display = 'none';
+  }
+
+  async function buySeed(seedName, event) {
+    if (event) event.preventDefault();
+    if (!userId) {
+      showMessage("Not logged in.");
+      return;
+    }
+    try {
+      const resp = await fetch(`${API_BASE}/buy_seed?user_id=${userId}&seed_name=${encodeURIComponent(seedName)}`, {method: 'POST'});
+      const data = await resp.json();
+      showMessage(data.message || data.error);
+      loadState();
+    } catch {
+      showMessage("Network error");
+    }
+  }
+
+  /* --------- Seed Selector --------- */
+  function openSeedSelector(plotId) {
+    if (!userId) return showMessage("Not logged in.");
+    fetch(`${API_BASE}/inventory/${userId}`)
+      .then(resp => resp.json())
+      .then(inventory => {
+        const selDiv = document.getElementById('seed-selector');
+        selDiv.innerHTML = "<h3>Select a Seed</h3>";
+        let hasSeed = false;
+        inventory.forEach(item => {
+          if (item.quantity > 0) {
+            hasSeed = true;
+            selDiv.innerHTML += `
+              <div class="seed-row">
+                ${item.item_name} (x${item.quantity})
+                <button type="button" onclick="selectSeed(${plotId}, '${item.item_name}', event)">Plant</button>
+              </div>
+            `;
+          }
+        });
+        if (!hasSeed) {
+          selDiv.innerHTML += "<p>You have no seeds. Buy in the shop!</p>";
+        }
+        selDiv.innerHTML += `<button type="button" onclick="closeSeedSelector(event)">Cancel</button>`;
+        selDiv.style.display = 'block';
+      })
+      .catch(() => {
+        showMessage("Failed to load inventory.");
+      });
+  }
+
+  function closeSeedSelector(event) {
+    if (event) event.preventDefault();
+    document.getElementById('seed-selector').style.display = 'none';
+  }
+
+  async function selectSeed(plotId, seedName, event) {
+    if (event) event.preventDefault();
+    try {
+      const resp = await fetch(`${API_BASE}/plant/${plotId}?user_id=${userId}&seed_name=${encodeURIComponent(seedName)}`, {method: 'POST'});
+      const data = await resp.json();
+      showMessage(data.message || data.error);
+      closeSeedSelector();
+      loadState();
+    } catch {
+      showMessage("Network error");
+    }
+  }
+
+  /* --------- Harvest --------- */
+  async function harvest(id) {
+    try {
+      const resp = await fetch(`${API_BASE}/harvest/${id}`, { method: 'POST' });
+      const data = await resp.json();
+      showMessage(data.message || data.error);
+      loadState();
+    } catch {
+      showMessage("Network error");
+    }
+  }
+</script>
+
+</body>
+</html>
