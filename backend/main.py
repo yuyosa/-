@@ -1,10 +1,8 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from datetime import datetime
 from db import SessionLocal, init_db, User, Plot, Inventory
-from fastapi import Query
-
 
 app = FastAPI()
 init_db()  # 初始化数据库
@@ -113,14 +111,12 @@ def get_all_users(db: Session = Depends(get_db)):
         result.append({
             "id": user.id,
             "username": user.username,
-            "password": user.password,   # 加上密码字段
+            "password": user.password,
             "gold": user.gold,
             "plots": plots
         })
     return result
 
-
-# 修改用户金币
 @app.post("/admin/update_gold")
 def update_gold(user_id: int = Query(...), gold: int = Query(...), db: Session = Depends(get_db)):
     user = db.query(User).get(user_id)
@@ -130,46 +126,50 @@ def update_gold(user_id: int = Query(...), gold: int = Query(...), db: Session =
     db.commit()
     return {"message": f"Updated gold for user {user.username} to {gold}"}
 
-# 删除用户
 @app.delete("/admin/delete_user")
 def delete_user(user_id: int = Query(...), db: Session = Depends(get_db)):
     user = db.query(User).get(user_id)
     if not user:
         return {"error": "User not found"}
-    # 删除用户的地块
     for plot in user.plots:
         db.delete(plot)
     db.delete(user)
     db.commit()
     return {"message": f"Deleted user {user.username}"}
 
-
-# 增加商店
 @app.post("/buy_seed")
-def buy_seed(user_id: int = Query(...), seed_name: str = Query(...), db: Session = Depends(get_db)):
+def buy_seed(
+    user_id: int = Query(...),
+    seed_name: str = Query(...),
+    quantity: int = Query(1),
+    db: Session = Depends(get_db)
+):
+    if quantity < 1:
+        quantity = 1
+    if quantity > 99:
+        quantity = 99
+
     user = db.query(User).get(user_id)
     if not user:
         return {"error": "User not found"}
 
-    price = 10  # 胡萝卜种子固定10金币
-    if user.gold < price:
-        return {"error": "Not enough gold"}
+    price_per_seed = 10  # 种子单价
+    total_price = price_per_seed * quantity
+    if user.gold < total_price:
+        return {"error": f"Not enough gold to buy {quantity} seeds"}
 
-    # 扣金币
-    user.gold -= price
+    user.gold -= total_price
 
-    # 更新库存
     inventory = db.query(Inventory).filter_by(user_id=user.id, item_name=seed_name).first()
     if inventory:
-        inventory.quantity += 1
+        inventory.quantity += quantity
     else:
-        inventory = Inventory(user_id=user.id, item_name=seed_name, quantity=1)
+        inventory = Inventory(user_id=user.id, item_name=seed_name, quantity=quantity)
         db.add(inventory)
 
     db.commit()
-    return {"message": f"Bought {seed_name}", "gold": user.gold}
+    return {"message": f"Bought {quantity} x {seed_name}", "gold": user.gold}
 
-# 查看库存
 @app.get("/inventory/{user_id}")
 def get_inventory(user_id: int, db: Session = Depends(get_db)):
     inventory = db.query(Inventory).filter_by(user_id=user_id).all()
