@@ -60,6 +60,13 @@
       <h3>Shop</h3>
       <div class="seed-row">
         Carrot Seed - 10 Gold
+        <input 
+          type="number" 
+          id="carrot_seed_quantity" 
+          min="1" max="99" 
+          placeholder="1-99" 
+          style="width:60px; margin-left:8px; margin-right:8px;" 
+        />
         <button type="button" onclick="buySeed('carrot_seed', event)">Buy</button>
       </div>
       <button type="button" onclick="closeShop(event)">Close Shop</button>
@@ -225,8 +232,14 @@
       showMessage("Not logged in.");
       return;
     }
+    // 取数量输入框值
+    const quantityInput = document.getElementById(seedName + "_quantity");
+    let quantity = parseInt(quantityInput.value);
+    if (isNaN(quantity) || quantity < 1) quantity = 1;
+    if (quantity > 99) quantity = 99;
+
     try {
-      const resp = await fetch(`${API_BASE}/buy_seed?user_id=${userId}&seed_name=${encodeURIComponent(seedName)}`, {method: 'POST'});
+      const resp = await fetch(`${API_BASE}/buy_seed?user_id=${userId}&seed_name=${encodeURIComponent(seedName)}&quantity=${quantity}`, {method: 'POST'});
       const data = await resp.json();
       showMessage(data.message || data.error);
       loadState();
