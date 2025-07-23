@@ -2,6 +2,22 @@
 <html>
 <head>
   <title>Admin Panel - Farm Game</title>
+  <style>
+    .user-card {
+      border: 1px solid #ccc;
+      margin: 10px;
+      padding: 10px;
+    }
+    .inventory {
+      margin-top: 5px;
+      padding-left: 20px;
+      display: none;
+      border-left: 2px solid #aaa;
+    }
+    .btn {
+      margin: 5px;
+    }
+  </style>
 </head>
 <body>
   <h1>Admin Panel</h1>
@@ -19,11 +35,17 @@
 
     users.forEach(user => {
       const userDiv = document.createElement('div');
-      userDiv.style.border = "1px solid #ccc";
-      userDiv.style.margin = "10px";
-      userDiv.style.padding = "10px";
+      userDiv.className = "user-card";
 
-      userDiv.innerHTML = `<strong>${user.username}</strong> (ID: ${user.id}) - 密码: ${user.password} - 黄金: ${user.gold}<br>`;
+      // 等级与经验显示
+      const xpInfo = `${user.xp_into_level}/${user.xp_per_level || 100} XP`;
+
+      userDiv.innerHTML = `
+        <strong>${user.username}</strong> (ID: ${user.id})<br>
+        密码: ${user.password}<br>
+        黄金: ${user.gold}<br>
+        等级: ${user.level}, 经验: ${user.xp_total} (${xpInfo})<br>
+      `;
 
       // 修改金币输入框
       const goldInput = document.createElement('input');
@@ -33,29 +55,42 @@
 
       const updateBtn = document.createElement('button');
       updateBtn.textContent = "Update Gold";
+      updateBtn.className = "btn";
       updateBtn.onclick = () => updateGold(user.id, goldInput.value);
 
       // 删除按钮
       const deleteBtn = document.createElement('button');
       deleteBtn.textContent = "Delete User";
-      deleteBtn.style.marginLeft = "10px";
+      deleteBtn.className = "btn";
       deleteBtn.onclick = () => deleteUser(user.id);
+
+      // 查看库存按钮
+      const inventoryBtn = document.createElement('button');
+      inventoryBtn.textContent = "查看库存";
+      inventoryBtn.className = "btn";
+      inventoryBtn.onclick = () => toggleInventory(user.id);
 
       userDiv.appendChild(goldInput);
       userDiv.appendChild(updateBtn);
       userDiv.appendChild(deleteBtn);
+      userDiv.appendChild(inventoryBtn);
 
+      // 农田信息
       const plotsList = document.createElement('ul');
       user.plots.forEach(plot => {
         const li = document.createElement('li');
-        if (plot.crop) {
-          li.textContent = `Plot ${plot.id}: ${plot.crop} (Planted at: ${plot.planted_at})`;
-        } else {
-          li.textContent = `Plot ${plot.id}: empty`;
-        }
+        li.textContent = plot.crop ? `Plot ${plot.id}: ${plot.crop} (Planted at: ${plot.planted_at})` : `Plot ${plot.id}: empty`;
         plotsList.appendChild(li);
       });
       userDiv.appendChild(plotsList);
+
+      // 库存信息区域
+      const inventoryDiv = document.createElement('div');
+      inventoryDiv.className = "inventory";
+      inventoryDiv.id = `inventory-${user.id}`;
+      inventoryDiv.textContent = "点击 '查看库存' 加载...";
+      userDiv.appendChild(inventoryDiv);
+
       container.appendChild(userDiv);
     });
   }
@@ -74,6 +109,27 @@
     alert(data.message || data.error);
     loadUsers();
   }
+
+  async function toggleInventory(userId) {
+    const invDiv = document.getElementById(`inventory-${userId}`);
+    if (invDiv.style.display === "block") {
+      invDiv.style.display = "none";
+      return;
+    }
+    invDiv.style.display = "block";
+    invDiv.textContent = "加载中...";
+    try {
+      const resp = await fetch(`${API_BASE}/inventory/${userId}`);
+      const inventory = await resp.json();
+      invDiv.innerHTML = inventory.length === 0
+        ? "库存为空。"
+        : "<strong>库存：</strong><ul>" + inventory.map(i => `<li>${i.item_name} x${i.quantity}</li>`).join('') + "</ul>";
+    } catch {
+      invDiv.textContent = "加载失败。";
+    }
+  }
+
+  window.onload = loadUsers;
 </script>
 </body>
 </html>
