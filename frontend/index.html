@@ -64,7 +64,7 @@
           type="number" 
           id="carrot_seed_quantity" 
           min="1" max="99" 
-          placeholder="1-99" 
+          placeholder="数量 1-99" 
           style="width:60px; margin-left:8px; margin-right:8px;" 
         />
         <button type="button" onclick="buySeed('carrot_seed', event)">Buy</button>
@@ -177,7 +177,14 @@
         logout();
         return;
       }
-      document.getElementById("welcome-message").innerText = `Welcome [${data.username}] Gold: ${data.gold}`;
+      // 显示用户等级 & 经验
+      const lvl = data.level ?? 1;
+      const xp_in = data.xp_into_level ?? 0;
+      const xp_next = data.xp_to_next ?? 100;
+      document.getElementById("welcome-message").innerText =
+        `Welcome [${data.username}] Gold: ${data.gold} | Lv.${lvl} (${xp_in}/${xp_in + xp_next} XP)`; 
+        // xp_in + xp_next = XP_PER_LEVEL (返回中有 xp_per_level 也可用)
+
       const plotsDiv = document.getElementById('plots');
       plotsDiv.innerHTML = '';
 
