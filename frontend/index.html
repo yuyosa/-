@@ -69,6 +69,7 @@
       cursor: pointer;
       text-align: center;
       font-size: 14px;
+      user-select: none;
     }
 
     #side-panel {
@@ -98,6 +99,43 @@
       #side-panel {
         max-width: 100%;
       }
+    }
+
+    /* 新增种子选择弹窗样式 */
+    #seed-selection {
+      display: none;
+      position: fixed;
+      top: 20%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: white;
+      border: 2px solid #666;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px #999;
+      z-index: 1000;
+      max-width: 300px;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+
+    #seed-selection h3 {
+      margin-top: 0;
+    }
+
+    #seed-selection button.seed-btn {
+      display: block;
+      width: 100%;
+      margin: 5px 0;
+      padding: 8px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #seed-selection button.cancel-btn {
+      margin-top: 10px;
+      background-color: #eee;
+      border: 1px solid #999;
     }
   </style>
 </head>
@@ -145,11 +183,38 @@
     </div>
   </div>
 
+  <!-- 新增弹窗容器 -->
+  <div id="seed-selection">
+    <h3>请选择种子</h3>
+    <div id="seed-buttons-container"></div>
+    <button class="cancel-btn" onclick="closeSeedSelection()">取消</button>
+  </div>
+
 <script>
   const API_BASE = "http://127.0.0.1:8000";
   let userId = null;
   let cropTimers = [];
   let CROP_GROW_TIME = 60;
+  let selectedPlotId = null;  // 当前点击要种植的地块ID
+
+  // 集中管理所有物品配置
+  const ITEM_CONFIG = {
+    "carrot_seed": { buy_price: 10, sell_price: 5, xp: 0 },
+    "carrot": { buy_price: 20, sell_price: 10, xp: 10 },
+    "potato_seed": { buy_price: 20, sell_price: 10, xp: 0 },
+    "potato": { buy_price: 40, sell_price: 35, xp: 20 },
+    // 你可以继续添加
+  };
+
+  // 获取所有种子名称（以 _seed 结尾）
+  function getSeedItems() {
+    return Object.keys(ITEM_CONFIG).filter(name => name.endsWith("_seed"));
+  }
+
+  // 根据物品名获取配置详情
+  function getItemInfo(itemName) {
+    return ITEM_CONFIG[itemName] || null;
+  }
 
   function showMessage(msg) {
     document.getElementById("message").textContent = msg;
@@ -158,6 +223,7 @@
   function showShop() {
     document.getElementById("shop-section").style.display = "block";
     document.getElementById("market-section").style.display = "none";
+    renderShopButtons();
   }
   function hideShop() {
     document.getElementById("shop-section").style.display = "none";
@@ -170,6 +236,24 @@
   }
   function hideMarket() {
     document.getElementById("market-section").style.display = "none";
+  }
+
+  // 动态渲染种子购买按钮，自动根据ITEM_CONFIG生成
+  function renderShopButtons() {
+    const shopSection = document.getElementById("shop-section");
+    // 清理已有按钮，只保留标题、关闭按钮和消息
+    [...shopSection.querySelectorAll("button")].forEach(btn => {
+      if (btn.textContent !== "Close") btn.remove();
+    });
+
+    // 按种子数组循环生成按钮
+    getSeedItems().forEach(seedName => {
+      const info = getItemInfo(seedName);
+      const btn = document.createElement("button");
+      btn.textContent = `Buy ${seedName.replace("_seed", "")} Seed (${info.buy_price} gold)`;
+      btn.onclick = () => buySeed(seedName);
+      shopSection.insertBefore(btn, shopSection.querySelector("button.cancel-btn") || shopSection.querySelector("button:last-of-type"));
+    });
   }
 
   async function login() {
@@ -264,11 +348,37 @@
         if (plot.crop) {
           harvest(plot.id);
         } else {
-          plant(plot.id, "carrot_seed");
+          // 弹出种子选择弹窗，选种子后再种植
+          openSeedSelection(plot.id);
         }
       };
       plotsDiv.appendChild(div);
     });
+  }
+
+  // 弹出种子选择弹窗
+  function openSeedSelection(plotId) {
+    selectedPlotId = plotId;
+    const container = document.getElementById("seed-buttons-container");
+    container.innerHTML = ""; // 清空旧按钮
+    getSeedItems().forEach(seedName => {
+      const info = getItemInfo(seedName);
+      const btn = document.createElement("button");
+      btn.className = "seed-btn";
+      btn.textContent = `种植 ${seedName.replace("_seed", "")} `;
+      btn.onclick = () => {
+        plant(selectedPlotId, seedName);
+        closeSeedSelection();
+      };
+      container.appendChild(btn);
+    });
+    document.getElementById("seed-selection").style.display = "block";
+  }
+
+  // 关闭弹窗
+  function closeSeedSelection() {
+    selectedPlotId = null;
+    document.getElementById("seed-selection").style.display = "none";
   }
 
   async function plant(plotId, seedName) {
@@ -337,5 +447,6 @@
     }
   };
 </script>
+
 </body>
 </html>
