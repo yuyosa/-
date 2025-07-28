@@ -28,9 +28,9 @@ def get_db():
 
 ITEM_CONFIG = {
     "carrot_seed": {"buy_price": 10, "sell_price": 5, "xp": 0},
-    "carrot": {"buy_price": 20, "sell_price": 10, "xp": 10},
+    "carrot": {"buy_price": 20, "sell_price": 10, "xp": 10, "grow_time": 60},
     "potato_seed": {"buy_price": 20, "sell_price": 15, "xp": 0},
-    "potato": {"buy_price": 40, "sell_price": 33, "xp": 20},
+    "potato": {"buy_price": 40, "sell_price": 33, "xp": 20, "grow_time": 90}
 }
 
 class RegisterRequest(BaseModel):
@@ -122,10 +122,13 @@ class HarvestRequest(BaseModel):
     user_id: int
     plot_id: int
 
+from datetime import timedelta
+
 @app.post("/harvest")
 def harvest(req: HarvestRequest, db: Session = Depends(get_db)):
     user = db.query(User).get(req.user_id)
     plot = db.query(Plot).get(req.plot_id)
+
     if not user or not plot or plot.owner != user or not plot.crop:
         raise HTTPException(status_code=400, detail="Nothing to harvest")
 
@@ -133,6 +136,11 @@ def harvest(req: HarvestRequest, db: Session = Depends(get_db)):
     item_info = ITEM_CONFIG.get(crop_name)
     if not item_info:
         raise HTTPException(status_code=400, detail="Invalid crop")
+
+    # 获取该作物的成熟时间（默认30秒）
+    grow_time = item_info.get("grow_time", 30)
+    if datetime.utcnow() < (plot.planted_at + timedelta(seconds=grow_time)):
+        raise HTTPException(status_code=400, detail="Crop not yet ready to harvest")
 
     user.xp += item_info["xp"]
     crop_item = db.query(Inventory).filter_by(user_id=req.user_id, item_name=crop_name).first()
@@ -145,6 +153,7 @@ def harvest(req: HarvestRequest, db: Session = Depends(get_db)):
     plot.planted_at = None
     db.commit()
     return {"message": "Crop harvested"}
+
 
 class BuyRequest(BaseModel):
     user_id: int
