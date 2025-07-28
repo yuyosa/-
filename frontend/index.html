@@ -198,10 +198,10 @@
   let selectedPlotId = null;
 
   const ITEM_CONFIG = {
-    "carrot_seed": { buy_price: 10, sell_price: 5, xp: 0 },
-    "carrot": { buy_price: 20, sell_price: 10, xp: 10 },
-    "potato_seed": { buy_price: 20, sell_price: 10, xp: 0 },
-    "potato": { buy_price: 40, sell_price: 35, xp: 20 },
+  "carrot_seed": { buy_price: 10, sell_price: 5, xp: 0, grow_time: 60 },
+  "carrot": { buy_price: 20, sell_price: 10, xp: 10, grow_time: 60 },
+  "potato_seed": { buy_price: 20, sell_price: 10, xp: 0, grow_time: 90 },
+  "potato": { buy_price: 40, sell_price: 35, xp: 20, grow_time: 90 },
   };
 
   function getSeedItems() {
@@ -348,7 +348,9 @@
       const updateTimer = () => {
         const now = new Date();
         const elapsed = Math.floor((now - plantedTime) / 1000);
-        const remain = Math.max(0, CROP_GROW_TIME - elapsed);
+        const cropInfo = ITEM_CONFIG[plot.crop] || {};
+        const growTime = cropInfo.grow_time || CROP_GROW_TIME;
+        const remain = Math.max(0, growTime - elapsed);
         timer.textContent = remain > 0 ? `剩余 ${remain}s` : `可收获`;
       };
       updateTimer();
