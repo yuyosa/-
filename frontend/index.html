@@ -168,6 +168,7 @@
         <div id="shop-section" style="display:none;">
           <h3>Shop</h3>
           <button onclick="buySeed('carrot_seed')">Buy Carrot Seed (10 gold)</button>
+          <button onclick="buySeed('potato_seed')">Buy Potato Seed (20 gold)</button>
           <button onclick="hideShop()">Close</button>
           <div id="shop-message" class="message"></div>
         </div>
@@ -191,17 +192,17 @@
   </div>
 
 <script>
-  const API_BASE = "http://127.0.0.1:8000";
+  const API_BASE = "http://localhost:8000";  // 你后端的地址和端口
   let userId = null;
   let cropTimers = [];
-  let CROP_GROW_TIME = 60;
+  let CROP_GROW_TIME = 60;  // 默认生长时间（秒），会被后端覆盖
   let selectedPlotId = null;
 
   const ITEM_CONFIG = {
-  "carrot_seed": { buy_price: 10, sell_price: 5, xp: 0, grow_time: 60 },
-  "carrot": { buy_price: 20, sell_price: 10, xp: 10, grow_time: 60 },
-  "potato_seed": { buy_price: 20, sell_price: 10, xp: 0, grow_time: 90 },
-  "potato": { buy_price: 40, sell_price: 35, xp: 20, grow_time: 90 },
+    "carrot_seed": { buy_price: 10, sell_price: 5, xp: 0, grow_time: 60 },
+    "carrot": { buy_price: 20, sell_price: 10, xp: 10, grow_time: 60 },
+    "potato_seed": { buy_price: 20, sell_price: 15, xp: 0, grow_time: 90 },
+    "potato": { buy_price: 40, sell_price: 33, xp: 20, grow_time: 90 },
   };
 
   function getSeedItems() {
@@ -300,75 +301,96 @@
   }
 
   async function loadState() {
-  if (!userId) return;
-  const resp = await fetch(`${API_BASE}/state/${userId}`);
-  const data = await resp.json();
-  if (data.detail) {
-    showMessage(data.detail);
-    return;
-  }
-
-  if (data.crop_grow_time) {
-    CROP_GROW_TIME = data.crop_grow_time;
-  }
-
-  document.getElementById("gold").textContent = data.gold;
-  document.getElementById("level").textContent = data.level;
-  document.getElementById("xp").textContent = data.xp;
-
-  const plotsDiv = document.getElementById("plots");
-  plotsDiv.innerHTML = "";
-  clearCropTimers();
-
-  data.plots.forEach(plot => {
-    const div = document.createElement("div");
-    div.className = "plot";
-
-    const content = document.createElement("img");
-
-    if (plot.image_url.startsWith("http")) {
-      content.src = plot.image_url;
-    } else {
-      content.src = `${API_BASE}${plot.image_url}`;
+    if (!userId) return;
+    const resp = await fetch(`${API_BASE}/state/${userId}`);
+    const data = await resp.json();
+    if (data.detail) {
+      showMessage(data.detail);
+      return;
     }
 
-    content.style.width = "100%";
-    content.style.height = "100%";
-    content.style.objectFit = "cover";
+    if (data.crop_grow_time) {
+      CROP_GROW_TIME = data.crop_grow_time;
+    }
 
-    const timer = document.createElement("div");
-    timer.style.fontSize = "12px";
-    timer.style.color = "#666";
+    document.getElementById("gold").textContent = data.gold;
+    document.getElementById("level").textContent = data.level;
+    document.getElementById("xp").textContent = data.xp;
 
-    div.appendChild(content);
-    if (plot.planted_at) div.appendChild(timer);
+    const plotsDiv = document.getElementById("plots");
+    plotsDiv.innerHTML = "";
+    clearCropTimers();
 
-    if (plot.crop) {
-      const plantedTime = new Date(plot.planted_at);
-      const updateTimer = () => {
+    data.plots.forEach(plot => {
+      const div = document.createElement("div");
+      div.className = "plot";
+
+      // 计算图片url，针对马铃薯有三阶段不同图，其它作物默认一张图
+      let imgSrc = "";
+      if (!plot.crop) {
+        imgSrc = `${API_BASE}${plot.image_url}`;
+      } else if (plot.crop === "potato" && plot.planted_at) {
+        const plantedTime = new Date(plot.planted_at);
         const now = new Date();
         const elapsed = Math.floor((now - plantedTime) / 1000);
-        const cropInfo = ITEM_CONFIG[plot.crop] || {};
-        const growTime = cropInfo.grow_time || CROP_GROW_TIME;
+        const growTime = ITEM_CONFIG["potato"].grow_time;
+
         const remain = Math.max(0, growTime - elapsed);
-        timer.textContent = remain > 0 ? `剩余 ${remain}s` : `可收获`;
-      };
-      updateTimer();
-      const intervalId = setInterval(updateTimer, 1000);
-      cropTimers.push(intervalId);
-    }
 
-    div.onclick = () => {
-      if (plot.crop) {
-        harvest(plot.id);
+        // 阶段划分: 
+        // Stage 1: 成长期75%以上 (剩余时间 > 0.75 * 总时长)
+        // Stage 2: 成长期50%-75% (剩余时间在0.5~0.75 * 总时长)
+        // Stage 3: 成长期0-50% (剩余时间 < 0.5 * 总时长)
+        if (remain > 0.75 * growTime) {
+          imgSrc = `${API_BASE}/static/images/crops/potato_stage1.png`;
+        } else if (remain > 0.5 * growTime) {
+          imgSrc = `${API_BASE}/static/images/crops/potato_stage2.png`;
+        } else {
+          imgSrc = `${API_BASE}/static/images/crops/potato_stage3.png`;
+        }
       } else {
-        openSeedSelection(plot.id);
+        // 其它作物，直接用后端给的图片地址
+        imgSrc = `${API_BASE}${plot.image_url}`;
       }
-    };
-    plotsDiv.appendChild(div);
-  });
-}
 
+      const content = document.createElement("img");
+      content.src = imgSrc;
+      content.style.width = "100%";
+      content.style.height = "100%";
+      content.style.objectFit = "cover";
+
+      const timer = document.createElement("div");
+      timer.style.fontSize = "12px";
+      timer.style.color = "#666";
+
+      div.appendChild(content);
+      if (plot.planted_at) div.appendChild(timer);
+
+      if (plot.crop) {
+        const plantedTime = new Date(plot.planted_at);
+        const updateTimer = () => {
+          const now = new Date();
+          const elapsed = Math.floor((now - plantedTime) / 1000);
+          const cropInfo = ITEM_CONFIG[plot.crop] || {};
+          const growTime = cropInfo.grow_time || CROP_GROW_TIME;
+          const remain = Math.max(0, growTime - elapsed);
+          timer.textContent = remain > 0 ? `剩余 ${remain}s` : `可收获`;
+        };
+        updateTimer();
+        const intervalId = setInterval(updateTimer, 1000);
+        cropTimers.push(intervalId);
+      }
+
+      div.onclick = () => {
+        if (plot.crop) {
+          harvest(plot.id);
+        } else {
+          openSeedSelection(plot.id);
+        }
+      };
+      plotsDiv.appendChild(div);
+    });
+  }
 
   function openSeedSelection(plotId) {
     selectedPlotId = plotId;
@@ -465,15 +487,18 @@
   }
 
   window.onload = () => {
-    const savedId = localStorage.getItem("userId");
-    if (savedId) {
-      userId = savedId;
-      // 如果有用户名可存储，最好存起来，这里先用默认名
-      startGame("Player");
-    } else {
-      document.getElementById("login-section").style.display = "block";
-    }
-  };
+  const savedId = localStorage.getItem("userId");
+  if (savedId) {
+    userId = savedId;
+    startGame("Player");
+    // 每10秒自动刷新农田状态
+    setInterval(() => {
+      loadState();
+    }, 10000); // 10000毫秒 = 10秒
+  } else {
+    document.getElementById("login-section").style.display = "block";
+  }
+};
 </script>
 
 </body>
