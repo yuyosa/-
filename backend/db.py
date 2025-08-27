@@ -14,7 +14,9 @@ class User(Base):
     username = Column(String, unique=True)
     password = Column(String)
     gold = Column(Integer, default=1000)
-    xp = Column(Integer, default=0)  # 新增：累计经验
+    xp = Column(Integer, default=0)  # 累计经验
+    level = Column(Integer, default=1)  # 新增：用户等级
+    unlocked_plots = Column(Integer, default=4)  # 新增：已解锁土地数量
     plots = relationship("Plot", back_populates="owner")
     inventory = relationship("Inventory", back_populates="user")
 
