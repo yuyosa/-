@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import BaseModel
 from db import SessionLocal, init_db, User, Plot, Inventory
 
@@ -26,13 +26,17 @@ def get_db():
     finally:
         db.close()
 
+# ------------------ ITEM CONFIG ------------------
 ITEM_CONFIG = {
     "carrot_seed": {"buy_price": 10, "sell_price": 5, "xp": 0},
-    "carrot": {"buy_price": 20, "sell_price": 10, "xp": 10, "grow_time": 60},
+    "carrot": {"buy_price": 20, "sell_price": 2000, "xp": 10, "grow_time": 60, "stages": 3},
     "potato_seed": {"buy_price": 20, "sell_price": 15, "xp": 0},
-    "potato": {"buy_price": 40, "sell_price": 33, "xp": 20, "grow_time": 90}
+    "potato": {"buy_price": 40, "sell_price": 35, "xp": 20, "grow_time": 90, "stages": 3},
+    "wheat_seed": {"buy_price": 30, "sell_price": 25, "xp": 0},
+    "wheat": {"buy_price": 60, "sell_price": 50, "xp": 30, "grow_time": 120, "stages": 4}
 }
 
+# ------------------ REGISTER / LOGIN ------------------
 class RegisterRequest(BaseModel):
     username: str
     password: str
@@ -45,8 +49,8 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-    for _ in range(6):
-        plot = Plot(owner=user)
+    for _ in range(user.unlocked_plots):
+        plot = Plot(user_id=user.id)
         db.add(plot)
     db.commit()
     return {"message": "Registered successfully"}
@@ -62,28 +66,53 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Invalid credentials")
     return {"user_id": user.id, "username": user.username}
 
+# ------------------ GET STATE ------------------
 @app.get("/state/{user_id}")
 def get_state(user_id: int, db: Session = Depends(get_db)):
     user = db.query(User).get(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # 保证 plots 数量 >= unlocked_plots
+    while len(user.plots) < user.unlocked_plots:
+        new_plot = Plot(user_id=user.id)
+        db.add(new_plot)
+        db.commit()
+        db.refresh(new_plot)
+        user.plots.append(new_plot)
 
     plots = []
+    now = datetime.utcnow()
     for plot in user.plots:
         crop_name = plot.crop
-        if crop_name:
+        planted_time = plot.planted_at
+        image_url = "/static/images/crops/empty.png"
+
+        if crop_name and planted_time:
+            item_cfg = ITEM_CONFIG.get(crop_name)
+            if item_cfg:
+                grow_time = item_cfg.get("grow_time", 30)
+                stages = item_cfg.get("stages", 1)
+                elapsed = (now - planted_time).total_seconds()
+                remain = max(0, grow_time - elapsed)
+                if stages > 1:
+                    stage_length = grow_time / stages
+                    current_stage = stages - int(remain // stage_length)
+                    current_stage = min(max(current_stage, 1), stages)
+                    image_url = f"/static/images/crops/{crop_name}_stage{current_stage}.png"
+                else:
+                    image_url = f"/static/images/crops/{crop_name}.png"
+        elif crop_name:
             image_url = f"/static/images/crops/{crop_name}.png"
-        else:
-            image_url = "/static/images/crops/empty.png"
+
         plots.append({
             "id": plot.id,
             "crop": crop_name,
-            "planted_at": plot.planted_at.isoformat() + "Z" if plot.planted_at else None,
+            "planted_at": planted_time.isoformat() + "Z" if planted_time else None,
             "image_url": image_url
         })
 
     inventory = [{"item_name": item.item_name, "quantity": item.quantity} for item in user.inventory]
-    # 计算等级，假设每100 XP升级一次
     level = (user.xp // 100) + 1
 
     return {
@@ -91,10 +120,13 @@ def get_state(user_id: int, db: Session = Depends(get_db)):
         "gold": user.gold,
         "xp": user.xp,
         "level": level,
+        "unlocked_plots": user.unlocked_plots,
         "plots": plots,
         "inventory": inventory
     }
 
+
+# ------------------ PLANT ------------------
 class PlantRequest(BaseModel):
     user_id: int
     plot_id: int
@@ -118,17 +150,15 @@ def plant(req: PlantRequest, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Crop planted"}
 
+# ------------------ HARVEST ------------------
 class HarvestRequest(BaseModel):
     user_id: int
     plot_id: int
-
-from datetime import timedelta
 
 @app.post("/harvest")
 def harvest(req: HarvestRequest, db: Session = Depends(get_db)):
     user = db.query(User).get(req.user_id)
     plot = db.query(Plot).get(req.plot_id)
-
     if not user or not plot or plot.owner != user or not plot.crop:
         raise HTTPException(status_code=400, detail="Nothing to harvest")
 
@@ -137,7 +167,6 @@ def harvest(req: HarvestRequest, db: Session = Depends(get_db)):
     if not item_info:
         raise HTTPException(status_code=400, detail="Invalid crop")
 
-    # 获取该作物的成熟时间（默认30秒）
     grow_time = item_info.get("grow_time", 30)
     if datetime.utcnow() < (plot.planted_at + timedelta(seconds=grow_time)):
         raise HTTPException(status_code=400, detail="Crop not yet ready to harvest")
@@ -154,7 +183,7 @@ def harvest(req: HarvestRequest, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Crop harvested"}
 
-
+# ------------------ BUY / SELL ------------------
 class BuyRequest(BaseModel):
     user_id: int
     item_name: str
@@ -204,3 +233,62 @@ def get_inventory(user_id: int, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return [{"item_name": item.item_name, "quantity": item.quantity} for item in user.inventory]
+
+# ------------------ UPGRADE LAND ------------------
+def calc_upgrade_cost(current_plots: int) -> int:
+    return 200 * (current_plots - 3) ** 2
+
+def get_max_plots_by_level(level: int) -> int:
+    if level <= 2: return 4
+    elif level <= 4: return 5
+    elif level <= 6: return 6
+    elif level <= 8: return 7
+    elif level <= 10: return 8
+    elif level <= 12: return 9
+    elif level <= 14: return 10
+    elif level <= 16: return 11
+    elif level <= 18: return 12
+    elif level <= 20: return 13
+    elif level <= 22: return 14
+    elif level <= 25: return 15
+    elif level <= 28: return 16
+    elif level <= 31: return 17
+    elif level <= 34: return 18
+    elif level <= 36: return 19
+    elif level == 37: return 20
+    elif level == 40: return 21
+    elif level == 43: return 22
+    elif level == 47: return 23
+    elif level >= 50: return 24
+    else: return 19
+
+@app.post("/upgrade_land/{user_id}")
+def upgrade_land(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    level = (user.xp // 100) + 1
+    max_allowed = get_max_plots_by_level(level)
+    if user.unlocked_plots >= max_allowed:
+        raise HTTPException(status_code=400, detail="等级未达或土地已满")
+    
+    cost = calc_upgrade_cost(user.unlocked_plots + 1)
+    if user.gold < cost:
+        raise HTTPException(status_code=400, detail=f"金币不足，需要 {cost} 金币")
+    
+    user.gold -= cost
+    user.unlocked_plots += 1
+
+    # 创建新地块
+    new_plot = Plot(user_id=user.id)
+    db.add(new_plot)
+    
+    db.commit()
+    
+    return {
+        "unlocked_plots": user.unlocked_plots,
+        "gold_left": user.gold,
+        "next_cost": calc_upgrade_cost(user.unlocked_plots + 1)
+    }
+
