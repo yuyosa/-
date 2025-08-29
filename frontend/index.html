@@ -375,7 +375,7 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
     } else {
       userId = data.user_id;
       localStorage.setItem("userId", userId);
-      startGame(data.username);
+      startGame();
     }
   }
 
@@ -398,10 +398,9 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
     document.getElementById("login-section").style.display = "block";
   }
 
-  function startGame(username) {
+  function startGame() {
     document.getElementById("login-section").style.display = "none";
     document.getElementById("game-section").style.display = "block";
-    document.getElementById("player-name").textContent = username;
     loadState();
     updateUpgradeInfo();
   }
@@ -423,7 +422,8 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
   document.getElementById("gold").textContent = data.gold;
   document.getElementById("level").textContent = data.level;
   document.getElementById("xp").textContent = data.xp;
-
+  document.getElementById("player-name").textContent = data.username;
+  
   const plotsDiv = document.getElementById("plots");
   plotsDiv.innerHTML = "";
   clearCropTimers();
@@ -588,7 +588,7 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
     if (savedId) {
       userId = savedId;
       // 这里先请求用户名简易版本，或保存用户名到localStorage
-      startGame("Player");
+      startGame();
       setInterval(loadState, 10000);
     } else {
       document.getElementById("login-section").style.display = "block";
