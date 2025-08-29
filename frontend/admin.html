@@ -7,6 +7,8 @@
       border: 1px solid #ccc;
       margin: 10px;
       padding: 10px;
+      border-radius: 8px;
+      background: #f9f9f9;
     }
     .inventory {
       margin-top: 5px;
@@ -16,55 +18,51 @@
     }
     .btn {
       margin: 5px;
+      padding: 4px 8px;
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
-  <h1>Admin Panel</h1>
-
-  <p>请输入用户ID查看用户数据（多次查看可刷新）</p>
-  <input type="number" id="userIdInput" placeholder="User ID" />
-  <button onclick="loadUser()">加载用户数据</button>
+  <h1>管理员面板</h1>
+  <button onclick="loadAllUsers()">加载所有用户</button>
 
   <div id="user-list"></div>
 
 <script>
   const API_BASE = "http://127.0.0.1:8000";
 
-  async function loadUser() {
-    const userId = document.getElementById('userIdInput').value.trim();
-    if (!userId) {
-      alert("请输入有效用户ID");
-      return;
-    }
+  // 加载所有用户
+  async function loadAllUsers() {
     const container = document.getElementById('user-list');
-    container.innerHTML = '加载中...';
-
+    container.innerHTML = "加载中...";
     try {
-      const resp = await fetch(`${API_BASE}/state/${userId}`);
+      const resp = await fetch(`${API_BASE}/admin/users`);
       if (!resp.ok) {
-        container.innerHTML = `错误: ${resp.status} ${resp.statusText}`;
+        container.innerHTML = `错误: ${resp.status}`;
         return;
       }
-      const user = await resp.json();
-
-      let html = `<div class="user-card">
-        <strong>${user.username}</strong> (ID: ${userId})<br>
-        黄金: ${user.gold}<br>
-        等级: ${user.level}, 经验: ${user.xp}<br>
-        <h4>农田:</h4>
-        <ul>
-          ${user.plots.map(p => `<li>Plot ${p.id}: ${p.crop || '空地'}${p.planted_at ? ` (种植时间: ${p.planted_at})` : ''}</li>`).join('')}
-        </ul>
-        <button class="btn" onclick="toggleInventory(${userId})">查看库存</button>
-        <div id="inventory-${userId}" class="inventory"></div>
-      </div>`;
-
-      container.innerHTML = html;
-
-    } catch (e) {
-      container.innerHTML = "加载失败，请检查网络和后端服务";
+      const users = await resp.json();
+      if (!Array.isArray(users) || users.length === 0) {
+        container.innerHTML = "暂无用户";
+        return;
+      }
+      container.innerHTML = users.map(user => renderUserCard(user)).join('');
+    } catch {
+      container.innerHTML = "加载失败，请检查后端。";
     }
+  }
+
+  function renderUserCard(user) {
+    return `<div class="user-card">
+      <strong>${user.username}</strong> (ID: ${user.id})<br>
+      密码: ${user.password}<br>
+      金币: <input type="number" id="gold-${user.id}" value="${user.gold}" />
+      <button onclick="updateGold(${user.id})">修改</button><br>
+      等级: ${user.level}, 经验: ${user.xp}<br>
+      <button class="btn" onclick="toggleInventory(${user.id})">查看库存</button>
+      <div id="inventory-${user.id}" class="inventory"></div>
+    </div>`;
   }
 
   async function toggleInventory(userId) {
@@ -91,7 +89,24 @@
       invDiv.textContent = "加载失败。";
     }
   }
-</script>
 
+  async function updateGold(userId) {
+    const newGold = document.getElementById(`gold-${userId}`).value;
+    try {
+      const resp = await fetch(`${API_BASE}/admin/update_gold/${userId}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({gold: parseInt(newGold)})
+      });
+      if (!resp.ok) {
+        alert("修改失败");
+        return;
+      }
+      alert("金币已更新");
+    } catch {
+      alert("请求失败");
+    }
+  }
+</script>
 </body>
 </html>
