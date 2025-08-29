@@ -33,8 +33,20 @@ ITEM_CONFIG = {
     "potato_seed": {"buy_price": 20, "sell_price": 15, "xp": 0},
     "potato": {"buy_price": 40, "sell_price": 35, "xp": 20, "grow_time": 90, "stages": 3},
     "wheat_seed": {"buy_price": 30, "sell_price": 25, "xp": 0},
-    "wheat": {"buy_price": 60, "sell_price": 50, "xp": 30, "grow_time": 120, "stages": 4}
+    "wheat": {"buy_price": 60, "sell_price": 500, "xp": 300, "grow_time": 120, "stages": 4}
 }
+
+def exp_to_next_level(level: int) -> int:
+    base = 200
+    factor = 1.15   # 每级递增 15%
+    return int(base * (factor ** (level - 1)))
+
+def calculate_level(xp: int) -> int:
+    level = 1
+    while xp >= exp_to_next_level(level):
+        xp -= exp_to_next_level(level)
+        level += 1
+    return level
 
 # ------------------ REGISTER / LOGIN ------------------
 class RegisterRequest(BaseModel):
@@ -119,7 +131,7 @@ def get_state(user_id: int, db: Session = Depends(get_db)):
         "username": user.username,
         "gold": user.gold,
         "xp": user.xp,
-        "level": level,
+        "level": user.level,
         "unlocked_plots": user.unlocked_plots,
         "plots": plots,
         "inventory": inventory
@@ -150,10 +162,21 @@ def plant(req: PlantRequest, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Crop planted"}
 
+
+def add_experience(user: User, amount: int, db: Session):
+    user.xp += amount
+    # 检查升级
+    while user.xp >= exp_to_next_level(user.level):
+        user.xp -= exp_to_next_level(user.level)
+        user.level += 1
+    db.commit()
+
 # ------------------ HARVEST ------------------
 class HarvestRequest(BaseModel):
     user_id: int
     plot_id: int
+
+
 
 @app.post("/harvest")
 def harvest(req: HarvestRequest, db: Session = Depends(get_db)):
@@ -171,7 +194,7 @@ def harvest(req: HarvestRequest, db: Session = Depends(get_db)):
     if datetime.utcnow() < (plot.planted_at + timedelta(seconds=grow_time)):
         raise HTTPException(status_code=400, detail="Crop not yet ready to harvest")
 
-    user.xp += item_info["xp"]
+    add_experience(user, item_info["xp"], db)
     crop_item = db.query(Inventory).filter_by(user_id=req.user_id, item_name=crop_name).first()
     if not crop_item:
         crop_item = Inventory(user_id=req.user_id, item_name=crop_name, quantity=0)
@@ -268,7 +291,7 @@ def upgrade_land(user_id: int, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    level = (user.xp // 100) + 1
+    level = user.level
     max_allowed = get_max_plots_by_level(level)
     if user.unlocked_plots >= max_allowed:
         raise HTTPException(status_code=400, detail="等级未达或土地已满")
@@ -292,3 +315,28 @@ def upgrade_land(user_id: int, db: Session = Depends(get_db)):
         "next_cost": calc_upgrade_cost(user.unlocked_plots + 1)
     }
 
+# 获取所有用户
+@app.get("/admin/users")
+def get_all_users(db: Session = Depends(get_db)):
+    users = db.query(User).all()
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "password": u.password,  # ⚠ 如果是 hash 就显示 hash
+            "gold": u.gold,
+            "level": u.level,
+            "xp": u.xp
+        }
+        for u in users
+    ]
+
+# 修改金币
+@app.post("/admin/update_gold/{user_id}")
+def update_gold(user_id: int, payload: dict, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return {"error": "用户不存在"}
+    user.gold = payload["gold"]
+    db.commit()
+    return {"message": "金币已更新", "gold": user.gold}
